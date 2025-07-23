@@ -15,7 +15,7 @@ import yaml
 import plotly.express as px
 import plotly.graph_objects as go
 
-from domain.events import Event, EventType, ScheduleUpdated
+from domain.events import Event, EventType, ScheduleUpdated, PriorityChange
 from domain.models import Order, Worker, Allocation, PriorityLevel, WorkSchedule
 from planner.algorithms import Scheduler
 
@@ -218,6 +218,43 @@ class Dashboard:
             use_container_width=True,
             hide_index=True
         )
+
+        # Form per aggiornare la priorità manuale
+        st.subheader("Imposta Priorità Manuale")
+        with st.form("priority_form"):
+            priority_inputs = {}
+            for _, row in filtered_df.iterrows():
+                code = row["Codice"]
+                order_obj = self.orders.get(code)
+                current_priority = order_obj.priority_manual
+                if current_priority is None:
+                    current_priority = order_obj.calculated_priority.value
+
+                priority_inputs[code] = st.number_input(
+                    label=f"{code}",
+                    min_value=0,
+                    max_value=5,
+                    step=1,
+                    value=int(current_priority),
+                    key=f"priority_input_{code}"
+                )
+
+            submitted = st.form_submit_button("Aggiorna Priorità")
+            if submitted:
+                for code, new_val in priority_inputs.items():
+                    new_priority = int(new_val)
+                    order = self.orders.get(code)
+                    if order is None:
+                        continue
+                    order.priority_manual = new_priority
+                    order.calculated_priority = PriorityLevel(min(new_priority, 5))
+                    try:
+                        asyncio.run(self.event_queue.put(PriorityChange(code, new_priority)))
+                    except RuntimeError:
+                        loop = asyncio.new_event_loop()
+                        loop.run_until_complete(self.event_queue.put(PriorityChange(code, new_priority)))
+                        loop.close()
+                st.success("Priorità aggiornate")
     
     def _render_worker_load_tab(self) -> None:
         """Renderizza la tab del carico operai"""
