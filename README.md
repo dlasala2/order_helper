@@ -101,4 +101,5 @@ Note:
 
 ## Licenza
 
-MIT"# order_helper" 
+Distribuito sotto licenza MIT.
+
