@@ -1,0 +1,27 @@
+2025-07-23 11:09:09,375 - scheduler - INFO - Avvio del sistema di schedulazione ordini
+2025-07-23 11:09:09,380 - scheduler - INFO - Creati 3 operai
+2025-07-23 11:09:09,382 - scheduler - INFO - Dashboard avviata su http://localhost:8501
+2025-07-23 11:30:54,767 - scheduler - INFO - Arresto degli agenti in corso...
+2025-07-23 11:30:54,767 - scheduler - INFO - Tutti gli agenti sono stati arrestati
+2025-07-23 11:30:56,901 - scheduler - INFO - Avvio del sistema di schedulazione ordini
+2025-07-23 11:30:56,906 - scheduler - INFO - Creati 3 operai
+2025-07-23 11:30:56,908 - scheduler - INFO - Dashboard avviata su http://localhost:8501
+2025-07-23 11:32:29,375 - scheduler - INFO - Avvio del sistema di schedulazione ordini
+2025-07-23 11:32:29,379 - scheduler - INFO - Creati 3 operai
+2025-07-23 11:32:29,382 - scheduler - INFO - Dashboard avviata su http://localhost:8501
+2025-07-23 11:33:22,992 - scheduler - INFO - Avvio del sistema di schedulazione ordini
+2025-07-23 11:33:22,996 - scheduler - INFO - Creati 3 operai
+2025-07-23 11:33:22,997 - scheduler - INFO - Dashboard avviata su http://localhost:8501
+2025-07-23 11:34:35,907 - scheduler - INFO - Avvio del sistema di schedulazione ordini
+2025-07-23 11:34:35,910 - scheduler - INFO - Creati 3 operai
+2025-07-23 11:34:35,912 - scheduler - INFO - Dashboard avviata su http://localhost:8501
+2025-07-23 11:35:58,195 - scheduler - INFO - Arresto degli agenti in corso...
+2025-07-23 11:35:58,196 - scheduler - INFO - Tutti gli agenti sono stati arrestati
+2025-07-23 11:39:52,012 - scheduler - INFO - Arresto degli agenti in corso...
+2025-07-23 11:39:52,013 - scheduler - INFO - Tutti gli agenti sono stati arrestati
+2025-07-23 11:42:22,269 - scheduler - INFO - Avvio del sistema di schedulazione ordini
+2025-07-23 11:42:22,272 - scheduler - INFO - Creati 3 operai
+2025-07-23 11:42:22,274 - scheduler - INFO - Dashboard avviata su http://localhost:8501
+2025-07-23 11:52:46,418 - scheduler - INFO - Avvio del sistema di schedulazione ordini
+2025-07-23 11:52:46,421 - scheduler - INFO - Creati 3 operai
+2025-07-23 11:52:46,423 - scheduler - INFO - Dashboard avviata su http://localhost:8501

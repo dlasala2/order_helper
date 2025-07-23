@@ -1,0 +1,1 @@
+# Modulo domain per i modelli di dominio e gli eventi

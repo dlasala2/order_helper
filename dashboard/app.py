@@ -1,0 +1,692 @@
+import asyncio
+import os
+import sys
+import time
+from datetime import date, datetime, timedelta
+from typing import Dict, List, Optional, Set
+from pathlib import Path
+
+# Aggiungi la directory principale al PYTHONPATH
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+import pandas as pd
+import streamlit as st
+import yaml
+import plotly.express as px
+import plotly.graph_objects as go
+
+from domain.events import Event, EventType, ScheduleUpdated
+from domain.models import Order, Worker, Allocation, PriorityLevel, WorkSchedule
+from planner.algorithms import Scheduler
+
+
+class Dashboard:
+    """Dashboard per visualizzare lo stato del sistema"""
+    
+    def __init__(self, config_path: str = "config.yaml", event_queue: Optional[asyncio.Queue] = None):
+        """Inizializza la dashboard
+        
+        Args:
+            config_path: Percorso del file di configurazione
+            event_queue: Coda di eventi per la comunicazione
+        """
+        self.config_path = config_path
+        self.event_queue = event_queue or asyncio.Queue()
+        self.config = self._load_config()
+        self.refresh_interval = self.config["dashboard"]["refresh_interval_seconds"]
+        self.orders: Dict[str, Order] = {}
+        self.workers: List[Worker] = []
+        self.schedule = WorkSchedule()
+        self.delays: Dict[str, timedelta] = {}
+        self.progress: Dict[str, float] = {}
+        self.worker_load: Dict[int, Dict[date, float]] = {}
+        self.last_update = datetime.now()
+    
+    def _load_config(self) -> dict:
+        """Carica la configurazione dal file YAML"""
+        with open(self.config_path, "r") as f:
+            return yaml.safe_load(f)
+    
+    async def start_event_listener(self) -> None:
+        """Avvia l'ascolto degli eventi"""
+        print("Avvio listener eventi per la dashboard")
+        
+        while True:
+            # Attendi un evento dalla coda
+            event = await self.event_queue.get()
+            
+            # Gestisci l'evento in base al tipo
+            if event.type == EventType.SCHEDULE_UPDATED:
+                self.last_update = datetime.now()
+            
+            # Segnala che l'evento è stato processato
+            self.event_queue.task_done()
+    
+    def update_data(self, orders: Dict[str, Order], workers: List[Worker], 
+                    schedule: WorkSchedule, delays: Dict[str, timedelta], 
+                    progress: Dict[str, float], worker_load: Dict[int, Dict[date, float]]) -> None:
+        """Aggiorna i dati della dashboard
+        
+        Args:
+            orders: Dizionario degli ordini
+            workers: Lista degli operai
+            schedule: Programma di lavoro
+            delays: Dizionario dei ritardi previsti
+            progress: Dizionario dell'avanzamento degli ordini
+            worker_load: Dizionario del carico di lavoro degli operai
+        """
+        self.orders = orders
+        self.workers = workers
+        self.schedule = schedule
+        self.delays = delays
+        self.progress = progress
+        self.worker_load = worker_load
+        self.last_update = datetime.now()
+    
+    def run(self) -> None:
+        """Avvia l'applicazione Streamlit"""
+        st.set_page_config(
+            page_title="Scadenziario Ordini",
+            page_icon="📊",
+            layout="wide",
+            initial_sidebar_state="expanded"
+        )
+        
+        st.title("📊 Scadenziario Ordini di Produzione")
+        
+        # Sidebar
+        st.sidebar.header("Filtri e Controlli")
+        
+        # Aggiungi un pulsante per la riallocazione manuale degli operai
+        st.sidebar.subheader("Gestione Allocazioni")
+        if st.sidebar.button("Ottimizza Allocazioni Operai"):
+            st.sidebar.success("Ottimizzazione allocazioni avviata. Controlla la tab 'Alert e Notifiche' per i suggerimenti.")
+        
+        # Aggiorna i dati
+        if st.sidebar.button("Aggiorna dati"):
+            st.rerun()
+        
+        st.sidebar.info(f"Ultimo aggiornamento: {self.last_update.strftime('%d/%m/%Y %H:%M:%S')}")
+        
+        # Tabs
+        tab1, tab2, tab3, tab4 = st.tabs(["📋 Ordini", "👷 Carico Operai", "⚠️ Alert", "📈 Avanzamento"])
+        
+        # Tab 1: Ordini
+        with tab1:
+            self._render_orders_tab()
+        
+        # Tab 2: Carico Operai
+        with tab2:
+            self._render_worker_load_tab()
+        
+        # Tab 3: Alert
+        with tab3:
+            self._render_alerts_tab()
+        
+        # Tab 4: Avanzamento
+        with tab4:
+            self._render_progress_tab()
+    
+    def _render_orders_tab(self) -> None:
+        """Renderizza la tab degli ordini"""
+        st.header("📋 Ordini di Produzione")
+        
+        if not self.orders:
+            st.info("Nessun ordine disponibile")
+            return
+        
+        # Crea un DataFrame con gli ordini
+        orders_data = []
+        
+        for order in self.orders.values():
+            orders_data.append({
+                "Codice": order.code,
+                "Descrizione": order.description,
+                "Ordinato": order.ordered_qty,
+                "Consumato": order.consumed_qty,
+                "Residuo": order.pending_qty,
+                "Ore/Pezzo": order.cycle_time,
+                "Ore Residue": order.remaining_work_hours,
+                "Nr. Doc.": order.doc_number,
+                "Data Doc.": order.doc_date.strftime("%d/%m/%Y"),
+                "Consegna": order.due_date.strftime("%d/%m/%Y"),
+                "Priorità": order.calculated_priority.value,
+                "Priorità Man.": str(order.priority_manual) if order.priority_manual is not None else "-"
+            })
+        
+        df_orders = pd.DataFrame(orders_data)
+        
+        # Filtri
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            priority_filter = st.multiselect(
+                "Filtra per priorità",
+                options=list(range(6)),
+                default=list(range(6)),
+                key="orders_priority_filter"
+            )
+        
+        with col2:
+            search = st.text_input("Cerca per codice o descrizione")
+        
+        # Applica i filtri
+        filtered_df = df_orders[
+            (df_orders["Priorità"].isin(priority_filter)) &
+            (df_orders["Codice"].str.contains(search, case=False) |
+             df_orders["Descrizione"].str.contains(search, case=False))
+        ]
+        
+        # Ordina per priorità (decrescente) e data di consegna (crescente)
+        filtered_df = filtered_df.sort_values(
+            by=["Priorità", "Consegna"],
+            ascending=[False, True]
+        )
+        
+        # Visualizza la tabella
+        st.dataframe(
+            filtered_df,
+            use_container_width=True,
+            hide_index=True
+        )
+    
+    def _render_worker_load_tab(self) -> None:
+        """Renderizza la tab del carico operai"""
+        st.header("👷 Carico di Lavoro Operai")
+        
+        if not self.workers or not self.worker_load:
+            st.info("Nessun dato disponibile sul carico di lavoro")
+            return
+        
+        # Crea un DataFrame con il carico di lavoro
+        load_data = []
+        
+        today = date.today()
+        days_ahead = 30
+        dates = [today + timedelta(days=i) for i in range(days_ahead)]
+        
+        for worker in self.workers:
+            worker_id = worker.id
+            worker_name = worker.name
+            hours_per_day = worker.hours_per_day
+            
+            for day in dates:
+                load = self.worker_load.get(worker_id, {}).get(day, 0)
+                utilization = (load / hours_per_day) * 100 if hours_per_day > 0 else 0
+                
+                load_data.append({
+                    "Operaio ID": worker_id,
+                    "Operaio": worker_name,
+                    "Data": day,
+                    "Ore Allocate": load,
+                    "Ore Disponibili": hours_per_day,
+                    "Utilizzo %": utilization
+                })
+        
+        df_load = pd.DataFrame(load_data)
+        
+        # Filtri
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            worker_filter = st.multiselect(
+                "Filtra per operaio",
+                options=[w.name for w in self.workers],
+                default=[w.name for w in self.workers],
+                key="worker_load_filter"
+            )
+        
+        with col2:
+            date_range = st.slider(
+                "Intervallo di date",
+                min_value=0,
+                max_value=days_ahead - 1,
+                value=(0, 14)
+            )
+        
+        # Applica i filtri
+        start_date = today + timedelta(days=date_range[0])
+        end_date = today + timedelta(days=date_range[1])
+        
+        filtered_df = df_load[
+            (df_load["Operaio"].isin(worker_filter)) &
+            (df_load["Data"] >= start_date) &
+            (df_load["Data"] <= end_date)
+        ]
+        
+        # Grafico del carico di lavoro
+        fig = px.bar(
+            filtered_df,
+            x="Data",
+            y="Ore Allocate",
+            color="Operaio",
+            barmode="group",
+            title="Carico di Lavoro Giornaliero",
+            labels={
+                "Data": "Data",
+                "Ore Allocate": "Ore Allocate",
+                "Operaio": "Operaio"
+            }
+        )
+        
+        # Aggiungi linee per le ore disponibili
+        for worker in self.workers:
+            if worker.name in worker_filter:
+                fig.add_trace(
+                    go.Scatter(
+                        x=[start_date + timedelta(days=i) for i in range((end_date - start_date).days + 1)],
+                        y=[worker.hours_per_day] * ((end_date - start_date).days + 1),
+                        mode="lines",
+                        name=f"{worker.name} - Disponibilità",
+                        line=dict(dash="dash")
+                    )
+                )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Tabella del carico di lavoro
+        st.subheader("Dettaglio Carico di Lavoro")
+        
+        # Pivot table per visualizzare il carico per operaio e data
+        pivot_df = filtered_df.pivot_table(
+            index="Operaio",
+            columns="Data",
+            values="Ore Allocate",
+            aggfunc="sum"
+        ).fillna(0)
+        
+        st.dataframe(
+            pivot_df,
+            use_container_width=True
+        )
+    
+    def _render_alerts_tab(self) -> None:
+        """Renderizza la tab degli alert"""
+        st.header("⚠️ Alert e Notifiche")
+        
+        # Alert per ritardi previsti
+        st.subheader("Ritardi Previsti")
+        
+        if not self.delays:
+            st.success("Nessun ritardo previsto")
+        else:
+            alerts_data = []
+            
+            for order_code, delay in self.delays.items():
+                if order_code not in self.orders:
+                    continue
+                
+                order = self.orders[order_code]
+                
+                alerts_data.append({
+                    "Codice": order.code,
+                    "Descrizione": order.description,
+                    "Consegna": order.due_date.strftime("%d/%m/%Y"),
+                    "Ritardo Previsto (giorni)": delay.days,
+                    "Priorità": order.calculated_priority.value
+                })
+            
+            df_alerts = pd.DataFrame(alerts_data)
+            
+            # Ordina per ritardo (decrescente) e priorità (decrescente)
+            df_alerts = df_alerts.sort_values(
+                by=["Ritardo Previsto (giorni)", "Priorità"],
+                ascending=[False, False]
+            )
+            
+            # Visualizza la tabella
+            st.dataframe(
+                df_alerts,
+                use_container_width=True,
+                hide_index=True
+            )
+        
+        # Suggerimenti di coordinamento
+        st.subheader("Suggerimenti di Coordinamento")
+        
+        # Identifica i momenti ottimali di interazione con altri reparti
+        if not self.orders or not self.schedule.allocations:
+            st.info("Dati insufficienti per generare suggerimenti")
+        else:
+            # Trova gli ordini con priorità alta
+            high_priority_orders = [o for o in self.orders.values() 
+                                  if o.calculated_priority.value >= 4 and o.pending_qty > 0]
+            
+            if not high_priority_orders:
+                st.info("Nessun ordine ad alta priorità da coordinare")
+            else:
+                suggestions = []
+                
+                for order in high_priority_orders:
+                    # Calcola la data di inizio produzione
+                    order_allocations = self.schedule.get_order_schedule(order.code)
+                    if not order_allocations:
+                        continue
+                    
+                    start_date = min(a.allocation_date for a in order_allocations)
+                    end_date = max(a.allocation_date for a in order_allocations)
+                    
+                    # Genera suggerimenti
+                    if (start_date - date.today()).days <= 2:
+                        suggestions.append({
+                            "Codice": order.code,
+                            "Descrizione": order.description,
+                            "Reparto": "Acquisti",
+                            "Azione": "Verificare disponibilità materiali",
+                            "Data Ottimale": date.today().strftime("%d/%m/%Y"),
+                            "Urgenza": "Alta"
+                        })
+                    
+                    if (end_date - date.today()).days <= 5:
+                        suggestions.append({
+                            "Codice": order.code,
+                            "Descrizione": order.description,
+                            "Reparto": "Collaudo",
+                            "Azione": "Pianificare collaudo",
+                            "Data Ottimale": end_date.strftime("%d/%m/%Y"),
+                            "Urgenza": "Media"
+                        })
+                
+                if not suggestions:
+                    st.info("Nessun suggerimento di coordinamento disponibile")
+                else:
+                    df_suggestions = pd.DataFrame(suggestions)
+                    
+                    # Visualizza la tabella
+                    st.dataframe(
+                        df_suggestions,
+                        use_container_width=True,
+                        hide_index=True
+                    )
+        
+        # Suggerimenti per allocazione operai
+        st.subheader("Suggerimenti per Allocazione Operai")
+        
+        if not self.workers or not self.worker_load or not self.orders:
+            st.info("Dati insufficienti per generare suggerimenti di allocazione")
+        else:
+            # Analizza il carico di lavoro attuale
+            today = date.today()
+            next_week = [today + timedelta(days=i) for i in range(7)]
+            
+            # Trova operai con basso carico di lavoro
+            underutilized_workers = []
+            for worker in self.workers:
+                worker_id = worker.id
+                avg_utilization = 0
+                days_count = 0
+                
+                for day in next_week:
+                    load = self.worker_load.get(worker_id, {}).get(day, 0)
+                    utilization = (load / worker.hours_per_day) * 100 if worker.hours_per_day > 0 else 0
+                    avg_utilization += utilization
+                    days_count += 1
+                
+                if days_count > 0:
+                    avg_utilization /= days_count
+                    
+                    if avg_utilization < 70:  # Soglia di sottoutilizzo
+                        underutilized_workers.append({
+                            "worker_id": worker_id,
+                            "worker_name": worker.name,
+                            "avg_utilization": avg_utilization,
+                            "available_capacity": worker.hours_per_day * 7 - sum(self.worker_load.get(worker_id, {}).get(day, 0) for day in next_week)
+                        })
+            
+            # Trova ordini in ritardo o ad alta priorità che potrebbero beneficiare di più operai
+            critical_orders = []
+            for order_code, delay in self.delays.items():
+                if order_code in self.orders and delay.days > 0:
+                    order = self.orders[order_code]
+                    critical_orders.append({
+                        "order_code": order.code,
+                        "description": order.description,
+                        "delay_days": delay.days,
+                        "priority": order.calculated_priority.value,
+                        "remaining_hours": order.remaining_work_hours
+                    })
+            
+            # Ordina per ritardo e priorità
+            critical_orders.sort(key=lambda x: (x["delay_days"], x["priority"]), reverse=True)
+            
+            # Genera suggerimenti di allocazione
+            allocation_suggestions = []
+            
+            for worker_data in underutilized_workers:
+                available_capacity = worker_data["available_capacity"]
+                
+                for order_data in critical_orders:
+                    if available_capacity > 0 and order_data["remaining_hours"] > 0:
+                        # Calcola quante ore allocare
+                        hours_to_allocate = min(available_capacity, order_data["remaining_hours"])
+                        
+                        # Calcola l'impatto sul ritardo
+                        days_saved = round(hours_to_allocate / 8, 1)  # Approssimazione
+                        
+                        allocation_suggestions.append({
+                            "Operaio": worker_data["worker_name"],
+                            "Utilizzo Attuale": f"{worker_data['avg_utilization']:.1f}%",
+                            "Codice Ordine": order_data["order_code"],
+                            "Descrizione": order_data["description"],
+                            "Ritardo Attuale": order_data["delay_days"],
+                            "Ore da Allocare": round(hours_to_allocate, 1),
+                            "Giorni Risparmiati": days_saved,
+                            "Priorità": order_data["priority"]
+                        })
+                        
+                        # Aggiorna le capacità disponibili
+                        available_capacity -= hours_to_allocate
+                        order_data["remaining_hours"] -= hours_to_allocate
+            
+            if not allocation_suggestions:
+                st.info("Nessun suggerimento di allocazione disponibile")
+            else:
+                df_allocations = pd.DataFrame(allocation_suggestions)
+                
+                # Visualizza la tabella
+                st.dataframe(
+                    df_allocations,
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+                # Visualizza un grafico che mostra l'impatto delle allocazioni suggerite
+                if len(df_allocations) > 0:
+                    fig = px.bar(
+                        df_allocations,
+                        x="Codice Ordine",
+                        y="Giorni Risparmiati",
+                        color="Operaio",
+                        title="Impatto delle Allocazioni Suggerite (Giorni Risparmiati)",
+                        labels={
+                            "Codice Ordine": "Codice Ordine",
+                            "Giorni Risparmiati": "Giorni Risparmiati",
+                            "Operaio": "Operaio"
+                        }
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+    
+    def _render_progress_tab(self) -> None:
+        """Renderizza la tab dell'avanzamento"""
+        st.header("📈 Avanzamento Ordini")
+        
+        if not self.orders or not self.progress:
+            st.info("Nessun dato disponibile sull'avanzamento")
+            return
+        
+        # Crea un DataFrame con l'avanzamento
+        progress_data = []
+        
+        for order_code, percentage in self.progress.items():
+            if order_code not in self.orders:
+                continue
+            
+            order = self.orders[order_code]
+            
+            progress_data.append({
+                "Codice": order.code,
+                "Descrizione": order.description,
+                "Avanzamento %": percentage,
+                "Ordinato": order.ordered_qty,
+                "Consumato": order.consumed_qty,
+                "Residuo": order.pending_qty,
+                "Consegna": order.due_date.strftime("%d/%m/%Y"),
+                "Priorità": order.calculated_priority.value
+            })
+        
+        df_progress = pd.DataFrame(progress_data)
+        
+        # Filtri
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            progress_filter = st.slider(
+                "Filtra per avanzamento",
+                min_value=0.0,
+                max_value=100.0,
+                value=(0.0, 100.0),
+                step=5.0
+            )
+        
+        with col2:
+            priority_filter = st.multiselect(
+                "Filtra per priorità",
+                options=list(range(6)),
+                default=list(range(6)),
+                key="progress_priority_filter"
+            )
+        
+        # Applica i filtri
+        filtered_df = df_progress[
+            (df_progress["Avanzamento %"] >= progress_filter[0]) &
+            (df_progress["Avanzamento %"] <= progress_filter[1]) &
+            (df_progress["Priorità"].isin(priority_filter))
+        ]
+        
+        # Ordina per avanzamento (crescente) e priorità (decrescente)
+        filtered_df = filtered_df.sort_values(
+            by=["Avanzamento %", "Priorità"],
+            ascending=[True, False]
+        )
+        
+        # Grafico dell'avanzamento
+        fig = px.bar(
+            filtered_df,
+            x="Codice",
+            y="Avanzamento %",
+            color="Priorità",
+            hover_data=["Descrizione", "Ordinato", "Consumato", "Residuo", "Consegna"],
+            title="Avanzamento Percentuale degli Ordini",
+            labels={
+                "Codice": "Codice Ordine",
+                "Avanzamento %": "Avanzamento (%)",
+                "Priorità": "Priorità"
+            }
+        )
+        
+        # Aggiungi una linea al 100%
+        fig.add_shape(
+            type="line",
+            x0=-0.5,
+            y0=100,
+            x1=len(filtered_df) - 0.5,
+            y1=100,
+            line=dict(color="red", width=2, dash="dash")
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Tabella dell'avanzamento
+        st.subheader("Dettaglio Avanzamento")
+        
+        st.dataframe(
+            filtered_df,
+            use_container_width=True,
+            hide_index=True
+        )
+
+
+def run_dashboard():
+    """Funzione principale per avviare la dashboard"""
+    # Crea la dashboard con la configurazione predefinita
+    dashboard = Dashboard()
+    
+    # Carica i dati iniziali dal file Excel
+    try:
+        from data_loader.excel_monitor import ExcelMonitor
+        from domain.models import Worker
+        import yaml
+        
+        # Carica la configurazione
+        with open("config.yaml", "r") as f:
+            config = yaml.safe_load(f)
+        
+        # Crea gli operai
+        workers = []
+        num_workers = config["resources"]["workers"]
+        hours_per_day = config["resources"]["hours_per_day"]
+        
+        for i in range(1, num_workers + 1):
+            worker = Worker(
+                id=i,
+                name=f"Operaio {i}",
+                hours_per_day=hours_per_day
+            )
+            workers.append(worker)
+        
+        # Crea il monitor Excel per caricare i dati
+        excel_monitor = ExcelMonitor("config.yaml")
+        orders = excel_monitor._parse_excel()
+        orders_dict = {order.code: order for order in orders}
+        
+        # Crea lo scheduler per calcolare i dati
+        from planner.algorithms import Scheduler, PriorityCalculator
+        
+        # Inizializza il calcolatore di priorità
+        urgency_thresholds = config["priority"]["urgency_thresholds"]
+        size_threshold = config["priority"]["size_threshold"]
+        priority_calculator = PriorityCalculator(urgency_thresholds, size_threshold)
+        
+        # Calcola le priorità degli ordini
+        for order in orders_dict.values():
+            order.calculated_priority = priority_calculator.compute_priority(
+                order, date.today()
+            )
+        
+        # Inizializza lo scheduler
+        scheduler = Scheduler(workers, priority_calculator)
+        
+        # Crea lo schedule
+        active_orders = [o for o in orders_dict.values() if o.pending_qty > 0]
+        schedule = scheduler.create_schedule(active_orders, date.today())
+        
+        # Calcola i ritardi previsti
+        delays = scheduler.check_delays(active_orders)
+        
+        # Calcola il carico di lavoro degli operai
+        worker_load = scheduler.get_worker_load()
+        
+        # Calcola l'avanzamento degli ordini
+        progress = scheduler.get_order_progress(active_orders)
+        
+        # Aggiorna i dati nella dashboard
+        dashboard.update_data(
+            orders=orders_dict,
+            workers=workers,
+            schedule=schedule,
+            delays=delays,
+            progress=progress,
+            worker_load=worker_load
+        )
+        
+        print("Dati iniziali caricati nella dashboard")
+    except Exception as e:
+        print(f"Errore durante il caricamento dei dati iniziali: {e}")
+    
+    # Avvia la dashboard
+    dashboard.run()
+
+
+if __name__ == "__main__":
+    run_dashboard()

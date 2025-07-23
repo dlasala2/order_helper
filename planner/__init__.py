@@ -1,0 +1,1 @@
+# Modulo planner per la pianificazione e l'allocazione delle risorse

@@ -1,0 +1,23 @@
+# Configurazione del sistema di schedulazione ordini
+
+# Percorso del file Excel con gli ordini
+excel:
+  path: "./data/ordini.xlsx"
+  sheet_name: "Ordini"
+  poll_interval_minutes: 60  # Frequenza di aggiornamento in minuti
+
+# Configurazione risorse
+resources:
+  workers: 3  # Numero di operai disponibili
+  hours_per_day: 8  # Ore di lavoro per operaio al giorno
+  default_cycle_time: 0.10  # Tempo di default per pezzo (in ore) se non specificato
+
+# Configurazione dashboard
+dashboard:
+  port: 8501  # Porta per l'applicazione Streamlit
+  refresh_interval_seconds: 30  # Frequenza di aggiornamento della dashboard
+
+# Configurazione algoritmo di prioritizzazione
+priority:
+  urgency_thresholds: [2, 5, 10]  # Soglie in giorni per urgenza (alta, media, bassa)
+  size_threshold: 8  # Soglia in ore per considerare un ordine grande
