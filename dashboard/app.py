@@ -35,7 +35,12 @@ class Dashboard:
         self.config = self._load_config()
         self.refresh_interval = self.config["dashboard"]["refresh_interval_seconds"]
         self.orders: Dict[str, Order] = {}
-        self.workers: List[Worker] = []
+        self.workers_file = self.config["resources"].get("workers_file")
+        if self.workers_file and os.path.exists(self.workers_file):
+            from domain.models import load_workers_from_yaml
+            self.workers = load_workers_from_yaml(self.workers_file)
+        else:
+            self.workers: List[Worker] = []
         self.schedule = WorkSchedule()
         self.delays: Dict[str, timedelta] = {}
         self.progress: Dict[str, float] = {}
@@ -109,7 +114,13 @@ class Dashboard:
         st.sidebar.info(f"Ultimo aggiornamento: {self.last_update.strftime('%d/%m/%Y %H:%M:%S')}")
         
         # Tabs
-        tab1, tab2, tab3, tab4 = st.tabs(["📋 Ordini", "👷 Carico Operai", "⚠️ Alert", "📈 Avanzamento"])
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            "📋 Ordini",
+            "👷 Carico Operai",
+            "⚠️ Alert",
+            "📈 Avanzamento",
+            "👥 Gestione Operai",
+        ])
         
         # Tab 1: Ordini
         with tab1:
@@ -126,6 +137,10 @@ class Dashboard:
         # Tab 4: Avanzamento
         with tab4:
             self._render_progress_tab()
+
+        # Tab 5: Gestione Operai
+        with tab5:
+            self._render_workers_tab()
     
     def _render_orders_tab(self) -> None:
         """Renderizza la tab degli ordini"""
@@ -139,6 +154,19 @@ class Dashboard:
         orders_data = []
         
         for order in self.orders.values():
+            # Determina l'operaio con più ore assegnate all'ordine
+            allocations = self.schedule.get_order_schedule(order.code)
+            worker_name = "-"
+            if allocations:
+                hours_by_worker: Dict[int, float] = {}
+                for alloc in allocations:
+                    hours_by_worker[alloc.worker_id] = hours_by_worker.get(alloc.worker_id, 0) + alloc.hours
+                best_id = max(hours_by_worker, key=hours_by_worker.get)
+                for w in self.workers:
+                    if w.id == best_id:
+                        worker_name = w.name
+                        break
+
             orders_data.append({
                 "Codice": order.code,
                 "Descrizione": order.description,
@@ -151,7 +179,8 @@ class Dashboard:
                 "Data Doc.": order.doc_date.strftime("%d/%m/%Y"),
                 "Consegna": order.due_date.strftime("%d/%m/%Y"),
                 "Priorità": order.calculated_priority.value,
-                "Priorità Man.": str(order.priority_manual) if order.priority_manual is not None else "-"
+                "Priorità Man.": str(order.priority_manual) if order.priority_manual is not None else "-",
+                "Operaio": worker_name,
             })
         
         df_orders = pd.DataFrame(orders_data)
@@ -606,6 +635,46 @@ class Dashboard:
             hide_index=True
         )
 
+    def _render_workers_tab(self) -> None:
+        """Pagina per gestire gli operai e le loro competenze"""
+        st.header("👥 Gestione Operai")
+
+        if not self.workers:
+            st.info("Nessun operaio presente")
+        else:
+            data = [
+                {
+                    "ID": w.id,
+                    "Nome": w.name,
+                    "Competenze": ", ".join(sorted(w.skills)) if w.skills else "-",
+                }
+                for w in self.workers
+            ]
+            st.table(pd.DataFrame(data))
+
+        st.subheader("Aggiungi Operaio")
+        with st.form("add_worker_form"):
+            name = st.text_input("Nome")
+            skills = st.multiselect(
+                "Codici conosciuti",
+                options=sorted(self.orders.keys()),
+            )
+            submitted = st.form_submit_button("Aggiungi")
+
+            if submitted and name:
+                new_id = max([w.id for w in self.workers], default=0) + 1
+                worker = Worker(
+                    id=new_id,
+                    name=name,
+                    hours_per_day=self.config["resources"]["hours_per_day"],
+                    skills=set(skills),
+                )
+                self.workers.append(worker)
+                if self.workers_file:
+                    from domain.models import save_workers_to_yaml
+                    save_workers_to_yaml(self.workers, self.workers_file)
+                st.success("Operaio aggiunto")
+
 
 def run_dashboard():
     """Funzione principale per avviare la dashboard"""
@@ -615,25 +684,30 @@ def run_dashboard():
     # Carica i dati iniziali dal file Excel
     try:
         from data_loader.excel_monitor import ExcelMonitor
-        from domain.models import Worker
+        from domain.models import Worker, load_workers_from_yaml
         import yaml
         
         # Carica la configurazione
         with open("config.yaml", "r") as f:
             config = yaml.safe_load(f)
         
-        # Crea gli operai
+        # Carica gli operai dal file YAML se disponibile
+        workers_file = config["resources"].get("workers_file")
         workers = []
-        num_workers = config["resources"]["workers"]
-        hours_per_day = config["resources"]["hours_per_day"]
-        
-        for i in range(1, num_workers + 1):
-            worker = Worker(
-                id=i,
-                name=f"Operaio {i}",
-                hours_per_day=hours_per_day
-            )
-            workers.append(worker)
+        if workers_file and os.path.exists(workers_file):
+            workers = load_workers_from_yaml(workers_file)
+
+        if not workers:
+            num_workers = config["resources"]["workers"]
+            hours_per_day = config["resources"]["hours_per_day"]
+
+            for i in range(1, num_workers + 1):
+                worker = Worker(
+                    id=i,
+                    name=f"Operaio {i}",
+                    hours_per_day=hours_per_day,
+                )
+                workers.append(worker)
         
         # Crea il monitor Excel per caricare i dati
         excel_monitor = ExcelMonitor("config.yaml")

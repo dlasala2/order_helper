@@ -49,19 +49,28 @@ async def run_agents(config_path: str = "config.yaml"):
     data_dir = Path(excel_path).parent
     os.makedirs(data_dir, exist_ok=True)
     
-    # Crea gli operai
+    # Carica gli operai dal file YAML se disponibile
+    from domain.models import load_workers_from_yaml
+
+    workers_file = config["resources"].get("workers_file")
     workers = []
-    num_workers = config["resources"]["workers"]
-    hours_per_day = config["resources"]["hours_per_day"]
-    
-    for i in range(1, num_workers + 1):
-        worker = Worker(
-            id=i,
-            name=f"Operaio {i}",
-            hours_per_day=hours_per_day
-        )
-        workers.append(worker)
-    
+
+    if workers_file and os.path.exists(workers_file):
+        workers = load_workers_from_yaml(workers_file)
+
+    if not workers:
+        # Fallback: crea operai di default
+        num_workers = config["resources"]["workers"]
+        hours_per_day = config["resources"]["hours_per_day"]
+
+        for i in range(1, num_workers + 1):
+            worker = Worker(
+                id=i,
+                name=f"Operaio {i}",
+                hours_per_day=hours_per_day,
+            )
+            workers.append(worker)
+
     logger.info(f"Creati {len(workers)} operai")
     
     # Crea il monitor Excel

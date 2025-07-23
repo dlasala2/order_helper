@@ -126,12 +126,21 @@ class Scheduler:
                 if remaining_hours <= 0:
                     break
                 
-                # Trova l'operaio con più disponibilità per questo giorno
+                # Trova gli operai che conoscono il codice
+                eligible_workers = [
+                    w for w in self.workers
+                    if not w.skills or order.code in w.skills
+                ]
+
+                # Ordina per disponibilità
                 workers_sorted = sorted(
-                    self.workers,
+                    eligible_workers,
                     key=lambda w: w.get_available_hours(day),
                     reverse=True
                 )
+
+                if not workers_sorted:
+                    continue
                 
                 for worker in workers_sorted:
                     allocated = worker.allocate_hours(day, remaining_hours)
