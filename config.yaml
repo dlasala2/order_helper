@@ -11,6 +11,7 @@ resources:
   workers: 3  # Numero di operai disponibili
   hours_per_day: 8  # Ore di lavoro per operaio al giorno
   default_cycle_time: 0.10  # Tempo di default per pezzo (in ore) se non specificato
+  workers_file: "./data/workers.yaml"  # File YAML con dati operai
 
 # Configurazione dashboard
 dashboard:

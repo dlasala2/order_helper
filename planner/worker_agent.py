@@ -49,6 +49,10 @@ class WorkerAgent:
         order_code = event.order_code
         work_hours = event.work_hours
         due_date = event.due_date
+
+        # Verifica se l'operaio conosce il codice
+        if self.worker.skills and order_code not in self.worker.skills:
+            return
         
         # Aggiungi l'ordine alle offerte attive
         self.active_bids.add(order_code)

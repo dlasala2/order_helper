@@ -1,0 +1,15 @@
+- id: 1
+  name: Operaio 1
+  hours_per_day: 8
+  skills:
+    - default
+- id: 2
+  name: Operaio 2
+  hours_per_day: 8
+  skills:
+    - default
+- id: 3
+  name: Operaio 3
+  hours_per_day: 8
+  skills:
+    - default

@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime, date
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 from enum import Enum
 
 
@@ -45,6 +45,7 @@ class Worker:
     id: int
     name: str
     hours_per_day: float = 8.0
+    skills: Set[str] = field(default_factory=set)
     # Dizionario che mappa date a ore disponibili
     availability: Dict[date, float] = field(default_factory=dict)
     
@@ -95,3 +96,45 @@ class WorkSchedule:
     def get_day_schedule(self, day: date) -> List[Allocation]:
         """Restituisce le allocazioni per un giorno specifico"""
         return [a for a in self.allocations if a.allocation_date == day]
+
+
+def load_workers_from_yaml(path: str) -> List[Worker]:
+    """Carica gli operai da un file YAML"""
+    import yaml
+    import os
+
+    if not os.path.exists(path):
+        return []
+
+    with open(path, "r") as f:
+        data = yaml.safe_load(f) or []
+
+    workers: List[Worker] = []
+    for item in data:
+        worker = Worker(
+            id=item.get("id"),
+            name=item.get("name"),
+            hours_per_day=item.get("hours_per_day", 8.0),
+            skills=set(item.get("skills", [])),
+        )
+        workers.append(worker)
+
+    return workers
+
+
+def save_workers_to_yaml(workers: List[Worker], path: str) -> None:
+    """Salva gli operai in un file YAML"""
+    import yaml
+
+    data = [
+        {
+            "id": w.id,
+            "name": w.name,
+            "hours_per_day": w.hours_per_day,
+            "skills": sorted(list(w.skills)),
+        }
+        for w in workers
+    ]
+
+    with open(path, "w") as f:
+        yaml.safe_dump(data, f, allow_unicode=True)
