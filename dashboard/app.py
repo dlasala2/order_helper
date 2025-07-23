@@ -15,7 +15,7 @@ import yaml
 import plotly.express as px
 import plotly.graph_objects as go
 
-from domain.events import Event, EventType, ScheduleUpdated
+from domain.events import Event, EventType, ScheduleUpdated, ProgressUpdate
 from domain.models import Order, Worker, Allocation, PriorityLevel, WorkSchedule
 from planner.algorithms import Scheduler
 
@@ -539,10 +539,50 @@ class Dashboard:
     def _render_progress_tab(self) -> None:
         """Renderizza la tab dell'avanzamento"""
         st.header("📈 Avanzamento Ordini")
-        
-        if not self.orders or not self.progress:
+
+        if not self.orders:
             st.info("Nessun dato disponibile sull'avanzamento")
             return
+
+        # Form per inserire un avanzamento manuale
+        st.subheader("Aggiorna Avanzamento")
+        with st.form("progress_update_form"):
+            order_code = st.selectbox(
+                "Ordine", options=sorted(self.orders.keys())
+            )
+            worker_option = st.selectbox(
+                "Operaio",
+                options=[(w.id, w.name) for w in self.workers],
+                format_func=lambda x: f"{x[0]} - {x[1]}",
+            )
+            qty_done = st.number_input("Quantità prodotta", min_value=0, step=1)
+            done_date = st.date_input("Data", value=date.today())
+            submitted = st.form_submit_button("Aggiorna")
+
+        if submitted and qty_done > 0:
+            update = ProgressUpdate(
+                order_code=order_code,
+                worker_id=worker_option[0],
+                qty_done=int(qty_done),
+                allocation_date=done_date,
+            )
+
+            try:
+                self.event_queue.put_nowait(update)
+            except Exception:
+                asyncio.create_task(self.event_queue.put(update))
+
+            # Aggiorna lo stato locale dell'ordine
+            order = self.orders[order_code]
+            order.consumed_qty += int(qty_done)
+            total_hours = order.ordered_qty * order.cycle_time
+            if total_hours <= 0:
+                percentage = 100.0
+            else:
+                consumed_hours = order.consumed_qty * order.cycle_time
+                percentage = min((consumed_hours / total_hours) * 100, 100.0)
+            self.progress[order_code] = percentage
+            st.success("Avanzamento registrato")
         
         # Crea un DataFrame con l'avanzamento
         progress_data = []
