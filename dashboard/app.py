@@ -218,6 +218,18 @@ class Dashboard:
             use_container_width=True,
             hide_index=True
         )
+
+        st.subheader("Segna Ordini Completati")
+        completed = st.multiselect(
+            "Seleziona gli ordini completati",
+            options=list(self.orders.keys()),
+            key="complete_orders_select"
+        )
+
+        if st.button("Conferma completamento") and completed:
+            self._complete_orders(completed)
+            st.success("Ordini aggiornati")
+            st.rerun()
     
     def _render_worker_load_tab(self) -> None:
         """Renderizza la tab del carico operai"""
@@ -674,6 +686,50 @@ class Dashboard:
                     from domain.models import save_workers_to_yaml
                     save_workers_to_yaml(self.workers, self.workers_file)
                 st.success("Operaio aggiunto")
+
+    def _complete_orders(self, codes: List[str]) -> None:
+        """Segna come completati gli ordini selezionati"""
+        if not codes:
+            return
+
+        excel_path = self.config["excel"]["path"]
+        sheet_name = self.config["excel"]["sheet_name"]
+
+        try:
+            df = pd.read_excel(excel_path, sheet_name=sheet_name)
+        except Exception as e:
+            st.error(f"Errore nel caricamento del file Excel: {e}")
+            return
+
+        for code in codes:
+            order = self.orders.get(code)
+            if not order:
+                continue
+
+            order.consumed_qty = order.ordered_qty
+
+            from domain.events import OrderUpdated
+
+            update = OrderUpdated(
+                order_code=order.code,
+                ordered_qty=order.ordered_qty,
+                consumed_qty=order.ordered_qty,
+                due_date=order.due_date,
+                priority_manual=order.priority_manual,
+            )
+            asyncio.create_task(self.event_queue.put(update))
+
+            mask = df["Codice"] == order.code
+            df.loc[mask, "Da cons."] = df.loc[mask, "Ordinato"]
+            if "Val. Residuo" in df.columns:
+                df.loc[mask, "Val. Residuo"] = 0
+
+            del self.orders[code]
+
+        try:
+            df.to_excel(excel_path, sheet_name=sheet_name, index=False)
+        except Exception as e:
+            st.error(f"Errore nel salvataggio del file Excel: {e}")
 
 
 def run_dashboard():
