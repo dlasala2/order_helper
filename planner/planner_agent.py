@@ -24,6 +24,7 @@ class PlannerAgent:
         self.workers = workers
         self.config = config
         self.event_queue = event_queue
+        # Dizionari indicizzati per numero documento (doc_number)
         self.orders: Dict[str, Order] = {}
         self.active_bids: Dict[str, List[BidResponse]] = {}
         self.schedule = WorkSchedule()
@@ -78,8 +79,8 @@ class PlannerAgent:
             priority_manual=event.priority_manual
         )
         
-        # Aggiungi l'ordine alla lista degli ordini
-        self.orders[order.code] = order
+        # Aggiungi l'ordine alla lista degli ordini indicizzato per nr. documento
+        self.orders[order.doc_number] = order
         
         print(f"Nuovo ordine creato: {order.code} - {order.description}")
         
@@ -92,7 +93,7 @@ class PlannerAgent:
         Args:
             event: L'evento di aggiornamento dell'ordine
         """
-        order_code = event.order_code
+        order_code = event.doc_number
         
         # Verifica che l'ordine esista
         if order_code not in self.orders:
@@ -124,7 +125,7 @@ class PlannerAgent:
         Args:
             event: L'evento di risposta all'offerta
         """
-        order_code = event.order_code
+        order_code = event.doc_number
         
         # Verifica che l'ordine esista e che ci sia una richiesta di offerta attiva
         if order_code not in self.orders or order_code not in self.active_bids:
@@ -143,7 +144,7 @@ class PlannerAgent:
         Args:
             event: L'evento di aggiornamento del progresso
         """
-        order_code = event.order_code
+        order_code = event.doc_number
         
         # Verifica che l'ordine esista
         if order_code not in self.orders:
@@ -168,7 +169,7 @@ class PlannerAgent:
         Args:
             event: L'evento di cambio priorità
         """
-        order_code = event.order_code
+        order_code = event.doc_number
         
         # Verifica che l'ordine esista
         if order_code not in self.orders:
@@ -201,29 +202,30 @@ class PlannerAgent:
             return
         
         # Inizializza la lista delle offerte attive
-        self.active_bids[order.code] = []
+        self.active_bids[order.doc_number] = []
         
         # Crea e invia una richiesta di offerta
         request = BidRequest(
             order_code=order.code,
+            doc_number=order.doc_number,
             work_hours=work_hours,
             due_date=order.due_date
         )
         
         await self.event_queue.put(request)
     
-    async def process_bids(self, order_code: str) -> None:
+    async def process_bids(self, doc_number: str) -> None:
         """Processa le offerte ricevute per un ordine
-        
+
         Args:
-            order_code: Codice dell'ordine
+            doc_number: Numero documento dell'ordine
         """
         # Verifica che l'ordine esista e che ci siano offerte attive
-        if order_code not in self.orders or order_code not in self.active_bids:
+        if doc_number not in self.orders or doc_number not in self.active_bids:
             return
-        
-        order = self.orders[order_code]
-        bids = self.active_bids[order_code]
+
+        order = self.orders[doc_number]
+        bids = self.active_bids[doc_number]
         
         # Ordina le offerte per capacità (decrescente)
         bids.sort(key=lambda b: b.capacity, reverse=True)
@@ -258,7 +260,8 @@ class PlannerAgent:
                 continue
             
             award = AllocationAward(
-                order_code=order_code,
+                order_code=order.code,
+                doc_number=doc_number,
                 worker_id=worker_id,
                 allocations=worker_allocations
             )
@@ -266,7 +269,7 @@ class PlannerAgent:
             await self.event_queue.put(award)
         
         # Rimuovi l'ordine dalle offerte attive
-        del self.active_bids[order_code]
+        del self.active_bids[doc_number]
         
         # Notifica che lo schedule è stato aggiornato
         await self.event_queue.put(ScheduleUpdated())
@@ -284,8 +287,8 @@ class PlannerAgent:
         # Verifica se ci sono ritardi previsti
         delays = self.scheduler.check_delays(active_orders)
         
-        for order_code, delay in delays.items():
-            print(f"Ritardo previsto per l'ordine {order_code}: {delay.days} giorni")
+        for doc_number, delay in delays.items():
+            print(f"Ritardo previsto per l'ordine {doc_number}: {delay.days} giorni")
         
         # Notifica che lo schedule è stato aggiornato
         await self.event_queue.put(ScheduleUpdated())

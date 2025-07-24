@@ -21,7 +21,8 @@ class WorkerAgent:
         self.event_queue = event_queue
         self.days_ahead = days_ahead
         self.allocations: List[Allocation] = []
-        self.active_bids: Set[str] = set()  # Codici degli ordini per cui è stata fatta un'offerta
+        # In questa struttura salviamo i numeri documento degli ordini con offerta attiva
+        self.active_bids: Set[str] = set()
     
     async def start(self) -> None:
         """Avvia l'agente operaio"""
@@ -47,6 +48,8 @@ class WorkerAgent:
             event: L'evento di richiesta di offerta
         """
         order_code = event.order_code
+        doc_number = event.doc_number
+        doc_number = event.doc_number
         work_hours = event.work_hours
         due_date = event.due_date
 
@@ -55,7 +58,7 @@ class WorkerAgent:
             return
         
         # Aggiungi l'ordine alle offerte attive
-        self.active_bids.add(order_code)
+        self.active_bids.add(doc_number)
         
         # Calcola la capacità disponibile fino alla data di consegna
         today = date.today()
@@ -85,6 +88,7 @@ class WorkerAgent:
         # Crea e invia la risposta all'offerta
         response = BidResponse(
             order_code=order_code,
+            doc_number=doc_number,
             worker_id=self.worker.id,
             capacity=total_capacity,
             proposed_dates=proposed_dates
@@ -107,7 +111,7 @@ class WorkerAgent:
             return
         
         # Rimuovi l'ordine dalle offerte attive
-        self.active_bids.discard(order_code)
+        self.active_bids.discard(doc_number)
         
         # Aggiorna la disponibilità dell'operaio
         for day, hours in allocations.items():
@@ -116,7 +120,7 @@ class WorkerAgent:
             
             # Crea un'allocazione
             allocation = Allocation(
-                order_code=order_code,
+                doc_number=doc_number,
                 worker_id=self.worker.id,
                 allocation_date=day,
                 hours=hours
@@ -124,9 +128,9 @@ class WorkerAgent:
             
             self.allocations.append(allocation)
         
-        print(f"Operaio {self.worker.id} ha ricevuto un'assegnazione per l'ordine {order_code}")
+        print(f"Operaio {self.worker.id} ha ricevuto un'assegnazione per l'ordine {doc_number}")
     
-    async def report_progress(self, order_code: str, qty_done: int, allocation_date: date) -> None:
+    async def report_progress(self, order_code: str, doc_number: str, qty_done: int, allocation_date: date) -> None:
         """Riporta il progresso di un ordine
         
         Args:
@@ -137,6 +141,7 @@ class WorkerAgent:
         # Crea e invia un evento di aggiornamento del progresso
         update = ProgressUpdate(
             order_code=order_code,
+            doc_number=doc_number,
             worker_id=self.worker.id,
             qty_done=qty_done,
             allocation_date=allocation_date
@@ -146,7 +151,7 @@ class WorkerAgent:
         
         # Aggiorna lo stato dell'allocazione
         for allocation in self.allocations:
-            if (allocation.order_code == order_code and 
+            if (allocation.doc_number == doc_number and
                 allocation.allocation_date == allocation_date):
                 allocation.completed = True
                 break

@@ -117,51 +117,47 @@ class Scheduler:
         # Assegna gli ordini agli operai
         for order in prioritized_orders:
             remaining_hours = order.remaining_work_hours
-            
+
             if remaining_hours <= 0:
                 continue
-            
-            # Assegna ore di lavoro giorno per giorno
-            for day in work_dates:
+
+            eligible_workers = [
+                w for w in self.workers if not w.skills or order.code in w.skills
+            ]
+
+            if not eligible_workers:
+                continue
+
+            # Scegli gli operai ordinati per disponibilità complessiva
+            workers_sorted = sorted(
+                eligible_workers,
+                key=lambda w: sum(w.get_available_hours(d) for d in work_dates),
+                reverse=True,
+            )
+
+            for worker in workers_sorted:
                 if remaining_hours <= 0:
                     break
-                
-                # Trova gli operai che conoscono il codice
-                eligible_workers = [
-                    w for w in self.workers
-                    if not w.skills or order.code in w.skills
-                ]
 
-                # Ordina per disponibilità
-                workers_sorted = sorted(
-                    eligible_workers,
-                    key=lambda w: w.get_available_hours(day),
-                    reverse=True
-                )
+                for day in work_dates:
+                    if remaining_hours <= 0:
+                        break
 
-                if not workers_sorted:
-                    continue
-                
-                for worker in workers_sorted:
+                    available = worker.get_available_hours(day)
+                    if available <= 0:
+                        continue
+
                     allocated = worker.allocate_hours(day, remaining_hours)
-                    
+
                     if allocated > 0:
-                        # Crea un'allocazione
                         allocation = Allocation(
-                            order_code=order.code,
+                            doc_number=order.doc_number,
                             worker_id=worker.id,
                             allocation_date=day,
-                            hours=allocated
+                            hours=allocated,
                         )
-                        
-                        # Aggiungi l'allocazione allo schedule
                         self.schedule.add_allocation(allocation)
-                        
-                        # Aggiorna le ore rimanenti
                         remaining_hours -= allocated
-                        
-                        if remaining_hours <= 0:
-                            break
         
         return self.schedule
     
@@ -178,7 +174,7 @@ class Scheduler:
         
         for order in orders:
             # Ottieni le allocazioni per questo ordine
-            allocations = self.schedule.get_order_schedule(order.code)
+            allocations = self.schedule.get_order_schedule(order.doc_number)
             
             if not allocations:
                 continue
@@ -189,7 +185,7 @@ class Scheduler:
             # Verifica se c'è un ritardo
             if completion_date > order.due_date.date():
                 delay = completion_date - order.due_date.date()
-                delays[order.code] = delay
+                delays[order.doc_number] = delay
         
         return delays
     
@@ -229,7 +225,7 @@ class Scheduler:
             total_hours = order.ordered_qty * order.cycle_time
             
             if total_hours <= 0:
-                progress[order.code] = 100.0
+                progress[order.doc_number] = 100.0
                 continue
             
             # Calcola le ore già lavorate (consumate)
@@ -237,6 +233,6 @@ class Scheduler:
             
             # Calcola la percentuale di avanzamento
             percentage = (consumed_hours / total_hours) * 100
-            progress[order.code] = min(percentage, 100.0)
+            progress[order.doc_number] = min(percentage, 100.0)
         
         return progress
