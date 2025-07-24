@@ -15,7 +15,6 @@ import yaml
 import plotly.express as px
 import plotly.graph_objects as go
 
-from domain.events import Event, EventType, ScheduleUpdated, ProgressUpdate
 from domain.events import (
     Event,
     EventType,
@@ -745,9 +744,10 @@ class Dashboard:
                 with st.expander(f"{w.name} (ID {w.id})"):
                     with st.form(f"edit_worker_{w.id}"):
                         skill_options = sorted(self.orders.keys())
+                        default_skills = [s for s in sorted(w.skills) if s in skill_options]
                         selected = st.multiselect(
                             "Competenze", options=skill_options,
-                            default=sorted(w.skills), key=f"skills_{w.id}"
+                            default=default_skills, key=f"skills_{w.id}"
                         )
                         saved = st.form_submit_button("Salva")
                     if saved:
