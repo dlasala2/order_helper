@@ -225,7 +225,7 @@ class Dashboard:
             use_container_width=True,
             hide_index=True
         )
-codex/extend-orders-tab-with-manual-priority-input
+
         # Form per aggiornare la priorità manuale
         st.subheader("Imposta Priorità Manuale")
         with st.form("priority_form"):
@@ -256,14 +256,14 @@ codex/extend-orders-tab-with-manual-priority-input
                         continue
                     order.priority_manual = new_priority
                     order.calculated_priority = PriorityLevel(min(new_priority, 5))
-codex/extend-orders-tab-with-manual-priority-input
-              try:
-                  asyncio.run(self.event_queue.put(PriorityChange(code, new_priority)))
-              except RuntimeError:
-                  loop = asyncio.new_event_loop()
-                  loop.run_until_complete(self.event_queue.put(PriorityChange(code, new_priority)))
-                  loop.close()
-          st.success("Priorità aggiornate")
+
+                try:
+                    asyncio.run(self.event_queue.put(PriorityChange(code, new_priority)))
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    loop.run_until_complete(self.event_queue.put(PriorityChange(code, new_priority)))
+                    loop.close()
+            st.success("Priorità aggiornate")
 
     
     def _render_worker_load_tab(self) -> None:

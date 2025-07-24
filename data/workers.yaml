@@ -1,15 +1,39 @@
-- id: 1
+- hours_per_day: 8
+  id: 1
   name: Operaio 1
-  hours_per_day: 8
   skills:
-    - default
-- id: 2
+  - default
+- hours_per_day: 8
+  id: 2
   name: Operaio 2
-  hours_per_day: 8
   skills:
-    - default
-- id: 3
+  - default
+- hours_per_day: 8
+  id: 3
   name: Operaio 3
-  hours_per_day: 8
   skills:
-    - default
+  - default
+- hours_per_day: 8
+  id: 4
+  name: op3
+  skills:
+  - SL1845-M
+  - SL2524-L
+- hours_per_day: 8
+  id: 5
+  name: op4
+  skills:
+  - SL2775S157-L
+  - SL2776S102-L
+  - SL2776S157-L
+  - SL2921B160-L
+  - SL3000B-L
+  - SL3071-L
+  - SL3107-L
+  - SL3157S102-L
+  - SL3160S102-L
+  - SL3160S155-L
+  - SL3192-L
+  - SL3251-L
+  - SL3252-L
+  - SLAV
