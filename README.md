@@ -77,6 +77,9 @@ Modifica il file `config.yaml` per personalizzare:
 - Numero di operai e ore di lavoro giornaliere
 - Parametri dell'algoritmo di prioritizzazione
 - Configurazione della dashboard
+- Abilitazione del database opzionale per salvare ordini e operai
+
+Se `database.enabled` è impostato a `true`, gli ordini e gli operai vengono salvati in un file SQLite (`database.path`). In assenza del database il sistema continua a utilizzare solo il file Excel/YAML.
 
 ## Utilizzo
 

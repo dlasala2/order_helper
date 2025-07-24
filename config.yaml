@@ -22,3 +22,8 @@ dashboard:
 priority:
   urgency_thresholds: [2, 5, 10]  # Soglie in giorni per urgenza (alta, media, bassa)
   size_threshold: 8  # Soglia in ore per considerare un ordine grande
+
+# Configurazione database opzionale
+database:
+  enabled: true
+  path: "./data/schedule.db"

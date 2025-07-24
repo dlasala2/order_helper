@@ -10,6 +10,7 @@ import yaml
 
 from domain.events import OrderCreated, OrderUpdated
 from domain.models import Order
+from database.sqlite_db import Database
 
 
 class ExcelMonitor:
@@ -29,6 +30,10 @@ class ExcelMonitor:
         self.sheet_name = self.config["excel"]["sheet_name"]
         self.poll_interval = self.config["excel"]["poll_interval_minutes"] * 60  # Converti in secondi
         self.default_cycle_time = self.config["resources"]["default_cycle_time"]
+        db_conf = self.config.get("database", {})
+        self.db: Optional[Database] = None
+        if db_conf.get("enabled"):
+            self.db = Database(db_conf.get("path", "./data/schedule.db"))
         self.last_modified_time = 0
         self.known_orders: Dict[str, Order] = {}
         
@@ -76,6 +81,8 @@ class ExcelMonitor:
                 )
                 orders.append(order)
             
+            if self.db:
+                self.db.save_orders(orders)
             return orders
         except Exception as e:
             print(f"Errore durante la lettura del file Excel: {e}")
@@ -103,6 +110,8 @@ class ExcelMonitor:
                 priority_manual=order.priority_manual
             )
             asyncio.create_task(self.event_queue.put(event))
+            if self.db:
+                self.db.save_orders([order])
         
         # Ordini aggiornati
         updated_codes = current_codes.intersection(known_codes)
@@ -125,6 +134,8 @@ class ExcelMonitor:
                     priority_manual=current.priority_manual
                 )
                 asyncio.create_task(self.event_queue.put(event))
+                if self.db:
+                    self.db.save_orders([current])
         
         # Aggiorna gli ordini conosciuti
         self.known_orders = current_order_dict
