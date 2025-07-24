@@ -741,8 +741,10 @@ class Dashboard:
             worker = next((w for w in self.workers if w.id == alloc.worker_id), None)
             if not order or not worker:
                 continue
-            start = datetime.combine(alloc.allocation_date, datetime.min.time())
-            finish = start + timedelta(hours=alloc.hours)
+
+            start = alloc.allocation_date
+            finish = alloc.allocation_date + timedelta(hours=alloc.hours)
+
             data.append({
                 "Task": order.code,
                 "Start": start,
