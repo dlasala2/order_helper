@@ -161,7 +161,7 @@ class Dashboard:
         
         for order in self.orders.values():
             # Determina l'operaio con più ore assegnate all'ordine
-            allocations = self.schedule.get_order_schedule(order.code)
+            allocations = self.schedule.get_order_schedule(order.doc_number)
             worker_name = "-"
             if allocations:
                 hours_by_worker: Dict[int, float] = {}
@@ -231,38 +231,38 @@ class Dashboard:
             priority_inputs = {}
 
             for _, row in filtered_df.iterrows():
-                code = row["Codice"]
-                order_obj = self.orders.get(code)
+                doc_number = row["Nr. Doc."]
+                order_obj = self.orders.get(doc_number)
                 current_priority = order_obj.priority_manual
                 if current_priority is None:
                     current_priority = order_obj.calculated_priority.value
 
-                priority_inputs[code] = st.number_input(
-                    label=f"{code}",
+                priority_inputs[doc_number] = st.number_input(
+                    label=f"{doc_number}",
                     min_value=0,
                     max_value=5,
                     step=1,
                     value=int(current_priority),
-                    key=f"priority_input_{code}"
+                    key=f"priority_input_{doc_number}"
                 )
 
             submitted = st.form_submit_button("Aggiorna Priorità")
             if submitted:
-                for code, new_val in priority_inputs.items():
+                for doc_number, new_val in priority_inputs.items():
                     new_priority = int(new_val)
-                    order = self.orders.get(code)
+                    order = self.orders.get(doc_number)
                     if order is None:
                         continue
                     order.priority_manual = new_priority
                     order.calculated_priority = PriorityLevel(min(new_priority, 5))
 
-                try:
-                    asyncio.run(self.event_queue.put(PriorityChange(code, new_priority)))
-                except RuntimeError:
-                    loop = asyncio.new_event_loop()
-                    loop.run_until_complete(self.event_queue.put(PriorityChange(code, new_priority)))
-                    loop.close()
-            st.success("Priorità aggiornate")
+                    try:
+                        asyncio.run(self.event_queue.put(PriorityChange(order.code, doc_number, new_priority)))
+                    except RuntimeError:
+                        loop = asyncio.new_event_loop()
+                        loop.run_until_complete(self.event_queue.put(PriorityChange(order.code, doc_number, new_priority)))
+                        loop.close()
+                st.success("Priorità aggiornate")
 
     
     def _render_worker_load_tab(self) -> None:
@@ -434,7 +434,7 @@ class Dashboard:
                 
                 for order in high_priority_orders:
                     # Calcola la data di inizio produzione
-                    order_allocations = self.schedule.get_order_schedule(order.code)
+                    order_allocations = self.schedule.get_order_schedule(order.doc_number)
                     if not order_allocations:
                         continue
                     
@@ -594,7 +594,7 @@ class Dashboard:
         st.subheader("Aggiorna Avanzamento")
         with st.form("progress_update_form"):
             order_code = st.selectbox(
-                "Ordine", options=sorted(self.orders.keys())
+                "Nr. Documento", options=sorted(self.orders.keys())
             )
             worker_option = st.selectbox(
                 "Operaio",
@@ -607,7 +607,8 @@ class Dashboard:
 
         if submitted and qty_done > 0:
             update = ProgressUpdate(
-                order_code=order_code,
+                order_code=self.orders[order_code].code,
+                doc_number=order_code,
                 worker_id=worker_option[0],
                 qty_done=int(qty_done),
                 allocation_date=done_date,
@@ -743,7 +744,7 @@ class Dashboard:
             for w in self.workers:
                 with st.expander(f"{w.name} (ID {w.id})"):
                     with st.form(f"edit_worker_{w.id}"):
-                        skill_options = sorted(self.orders.keys())
+                        skill_options = sorted({o.code for o in self.orders.values()})
                         default_skills = [s for s in sorted(w.skills) if s in skill_options]
                         selected = st.multiselect(
                             "Competenze", options=skill_options,
@@ -810,6 +811,7 @@ class Dashboard:
 
             update = OrderUpdated(
                 order_code=order.code,
+                doc_number=order.doc_number,
                 ordered_qty=order.ordered_qty,
                 consumed_qty=order.ordered_qty,
                 due_date=order.due_date,
@@ -866,7 +868,7 @@ def run_dashboard():
         # Crea il monitor Excel per caricare i dati
         excel_monitor = ExcelMonitor("config.yaml")
         orders = excel_monitor._parse_excel()
-        orders_dict = {order.code: order for order in orders}
+        orders_dict = {order.doc_number: order for order in orders}
         
         # Crea lo scheduler per calcolare i dati
         from planner.algorithms import Scheduler, PriorityCalculator

@@ -83,7 +83,7 @@ class ExcelMonitor:
     
     def _detect_changes(self, current_orders: List[Order]) -> None:
         """Rileva cambiamenti negli ordini e genera eventi appropriati"""
-        current_order_dict = {order.code: order for order in current_orders}
+        current_order_dict = {order.doc_number: order for order in current_orders}
         current_codes = set(current_order_dict.keys())
         known_codes = set(self.known_orders.keys())
         
@@ -93,11 +93,11 @@ class ExcelMonitor:
             order = current_order_dict[code]
             event = OrderCreated(
                 order_code=order.code,
+                doc_number=order.doc_number,
                 description=order.description,
                 ordered_qty=order.ordered_qty,
                 consumed_qty=order.consumed_qty,
                 cycle_time=order.cycle_time,
-                doc_number=order.doc_number,
                 doc_date=order.doc_date,
                 due_date=order.due_date,
                 priority_manual=order.priority_manual
@@ -118,6 +118,7 @@ class ExcelMonitor:
                 
                 event = OrderUpdated(
                     order_code=current.code,
+                    doc_number=current.doc_number,
                     ordered_qty=current.ordered_qty,
                     consumed_qty=current.consumed_qty,
                     due_date=current.due_date,

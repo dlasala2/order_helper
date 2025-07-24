@@ -64,7 +64,7 @@ class Worker:
 @dataclass
 class Allocation:
     """Rappresenta un'allocazione di lavoro per un ordine a un operaio"""
-    order_code: str
+    doc_number: str
     worker_id: int
     allocation_date: date
     hours: float
@@ -73,7 +73,7 @@ class Allocation:
     @property
     def key(self) -> str:
         """Chiave univoca per l'allocazione"""
-        return f"{self.order_code}_{self.worker_id}_{self.allocation_date.isoformat()}"
+        return f"{self.doc_number}_{self.worker_id}_{self.allocation_date.isoformat()}"
 
 
 @dataclass
@@ -89,9 +89,9 @@ class WorkSchedule:
         """Restituisce le allocazioni per un operaio specifico"""
         return [a for a in self.allocations if a.worker_id == worker_id]
     
-    def get_order_schedule(self, order_code: str) -> List[Allocation]:
+    def get_order_schedule(self, doc_number: str) -> List[Allocation]:
         """Restituisce le allocazioni per un ordine specifico"""
-        return [a for a in self.allocations if a.order_code == order_code]
+        return [a for a in self.allocations if a.doc_number == doc_number]
     
     def get_day_schedule(self, day: date) -> List[Allocation]:
         """Restituisce le allocazioni per un giorno specifico"""
