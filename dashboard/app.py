@@ -15,7 +15,14 @@ import yaml
 import plotly.express as px
 import plotly.graph_objects as go
 
-from domain.events import Event, EventType, ScheduleUpdated, PriorityChange
+from domain.events import Event, EventType, ScheduleUpdated, ProgressUpdate
+from domain.events import (
+    Event,
+    EventType,
+    ScheduleUpdated,
+    ProgressUpdate,
+    PriorityChange,
+)
 from domain.models import Order, Worker, Allocation, PriorityLevel, WorkSchedule
 from planner.algorithms import Scheduler
 
@@ -218,11 +225,12 @@ class Dashboard:
             use_container_width=True,
             hide_index=True
         )
-
+codex/extend-orders-tab-with-manual-priority-input
         # Form per aggiornare la priorità manuale
         st.subheader("Imposta Priorità Manuale")
         with st.form("priority_form"):
             priority_inputs = {}
+
             for _, row in filtered_df.iterrows():
                 code = row["Codice"]
                 order_obj = self.orders.get(code)
@@ -248,13 +256,15 @@ class Dashboard:
                         continue
                     order.priority_manual = new_priority
                     order.calculated_priority = PriorityLevel(min(new_priority, 5))
-                    try:
-                        asyncio.run(self.event_queue.put(PriorityChange(code, new_priority)))
-                    except RuntimeError:
-                        loop = asyncio.new_event_loop()
-                        loop.run_until_complete(self.event_queue.put(PriorityChange(code, new_priority)))
-                        loop.close()
-                st.success("Priorità aggiornate")
+codex/extend-orders-tab-with-manual-priority-input
+              try:
+                  asyncio.run(self.event_queue.put(PriorityChange(code, new_priority)))
+              except RuntimeError:
+                  loop = asyncio.new_event_loop()
+                  loop.run_until_complete(self.event_queue.put(PriorityChange(code, new_priority)))
+                  loop.close()
+          st.success("Priorità aggiornate")
+
     
     def _render_worker_load_tab(self) -> None:
         """Renderizza la tab del carico operai"""
@@ -576,10 +586,50 @@ class Dashboard:
     def _render_progress_tab(self) -> None:
         """Renderizza la tab dell'avanzamento"""
         st.header("📈 Avanzamento Ordini")
-        
-        if not self.orders or not self.progress:
+
+        if not self.orders:
             st.info("Nessun dato disponibile sull'avanzamento")
             return
+
+        # Form per inserire un avanzamento manuale
+        st.subheader("Aggiorna Avanzamento")
+        with st.form("progress_update_form"):
+            order_code = st.selectbox(
+                "Ordine", options=sorted(self.orders.keys())
+            )
+            worker_option = st.selectbox(
+                "Operaio",
+                options=[(w.id, w.name) for w in self.workers],
+                format_func=lambda x: f"{x[0]} - {x[1]}",
+            )
+            qty_done = st.number_input("Quantità prodotta", min_value=0, step=1)
+            done_date = st.date_input("Data", value=date.today())
+            submitted = st.form_submit_button("Aggiorna")
+
+        if submitted and qty_done > 0:
+            update = ProgressUpdate(
+                order_code=order_code,
+                worker_id=worker_option[0],
+                qty_done=int(qty_done),
+                allocation_date=done_date,
+            )
+
+            try:
+                self.event_queue.put_nowait(update)
+            except Exception:
+                asyncio.create_task(self.event_queue.put(update))
+
+            # Aggiorna lo stato locale dell'ordine
+            order = self.orders[order_code]
+            order.consumed_qty += int(qty_done)
+            total_hours = order.ordered_qty * order.cycle_time
+            if total_hours <= 0:
+                percentage = 100.0
+            else:
+                consumed_hours = order.consumed_qty * order.cycle_time
+                percentage = min((consumed_hours / total_hours) * 100, 100.0)
+            self.progress[order_code] = percentage
+            st.success("Avanzamento registrato")
         
         # Crea un DataFrame con l'avanzamento
         progress_data = []
@@ -689,6 +739,29 @@ class Dashboard:
             ]
             st.table(pd.DataFrame(data))
 
+        if self.workers:
+            st.subheader("Modifica Competenze")
+            for w in self.workers:
+                with st.expander(f"{w.name} (ID {w.id})"):
+                    with st.form(f"edit_worker_{w.id}"):
+                        skill_options = sorted(self.orders.keys())
+                        selected = st.multiselect(
+                            "Competenze", options=skill_options,
+                            default=sorted(w.skills), key=f"skills_{w.id}"
+                        )
+                        saved = st.form_submit_button("Salva")
+                    if saved:
+                        w.skills = set(selected)
+                        if self.workers_file:
+                            from domain.models import save_workers_to_yaml
+                            save_workers_to_yaml(self.workers, self.workers_file)
+                        update = ScheduleUpdated()
+                        try:
+                            self.event_queue.put_nowait(update)
+                        except Exception:
+                            asyncio.create_task(self.event_queue.put(update))
+                        st.success("Competenze aggiornate")
+
         st.subheader("Aggiungi Operaio")
         with st.form("add_worker_form"):
             name = st.text_input("Nome")
@@ -711,6 +784,50 @@ class Dashboard:
                     from domain.models import save_workers_to_yaml
                     save_workers_to_yaml(self.workers, self.workers_file)
                 st.success("Operaio aggiunto")
+
+    def _complete_orders(self, codes: List[str]) -> None:
+        """Segna come completati gli ordini selezionati"""
+        if not codes:
+            return
+
+        excel_path = self.config["excel"]["path"]
+        sheet_name = self.config["excel"]["sheet_name"]
+
+        try:
+            df = pd.read_excel(excel_path, sheet_name=sheet_name)
+        except Exception as e:
+            st.error(f"Errore nel caricamento del file Excel: {e}")
+            return
+
+        for code in codes:
+            order = self.orders.get(code)
+            if not order:
+                continue
+
+            order.consumed_qty = order.ordered_qty
+
+            from domain.events import OrderUpdated
+
+            update = OrderUpdated(
+                order_code=order.code,
+                ordered_qty=order.ordered_qty,
+                consumed_qty=order.ordered_qty,
+                due_date=order.due_date,
+                priority_manual=order.priority_manual,
+            )
+            asyncio.create_task(self.event_queue.put(update))
+
+            mask = df["Codice"] == order.code
+            df.loc[mask, "Da cons."] = df.loc[mask, "Ordinato"]
+            if "Val. Residuo" in df.columns:
+                df.loc[mask, "Val. Residuo"] = 0
+
+            del self.orders[code]
+
+        try:
+            df.to_excel(excel_path, sheet_name=sheet_name, index=False)
+        except Exception as e:
+            st.error(f"Errore nel salvataggio del file Excel: {e}")
 
 
 def run_dashboard():
