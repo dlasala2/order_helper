@@ -120,11 +120,12 @@ class Dashboard:
         st.sidebar.info(f"Ultimo aggiornamento: {self.last_update.strftime('%d/%m/%Y %H:%M:%S')}")
         
         # Tabs
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
             "📋 Ordini",
             "👷 Carico Operai",
             "⚠️ Alert",
             "📈 Avanzamento",
+            "📆 Gantt",
             "👥 Gestione Operai",
         ])
         
@@ -144,8 +145,12 @@ class Dashboard:
         with tab4:
             self._render_progress_tab()
 
-        # Tab 5: Gestione Operai
+        # Tab 5: Gantt
         with tab5:
+            self._render_gantt_tab()
+
+        # Tab 6: Gestione Operai
+        with tab6:
             self._render_workers_tab()
     
     def _render_orders_tab(self) -> None:
@@ -722,6 +727,34 @@ class Dashboard:
             hide_index=True
         )
 
+    def _render_gantt_tab(self) -> None:
+        """Visualizza lo schedule in formato Gantt"""
+        st.header("📆 Pianificazione Gantt")
+
+        if not self.schedule.allocations:
+            st.info("Nessuna allocazione disponibile")
+            return
+
+        data = []
+        for alloc in self.schedule.allocations:
+            order = self.orders.get(alloc.doc_number)
+            worker = next((w for w in self.workers if w.id == alloc.worker_id), None)
+            if not order or not worker:
+                continue
+            start = datetime.combine(alloc.allocation_date, datetime.min.time())
+            finish = start + timedelta(hours=alloc.hours)
+            data.append({
+                "Task": order.code,
+                "Start": start,
+                "Finish": finish,
+                "Resource": worker.name,
+            })
+
+        df = pd.DataFrame(data)
+        fig = px.timeline(df, x_start="Start", x_end="Finish", y="Task", color="Resource")
+        fig.update_yaxes(autorange="reversed")
+        st.plotly_chart(fig, use_container_width=True)
+
     def _render_workers_tab(self) -> None:
         """Pagina per gestire gli operai e le loro competenze"""
         st.header("👥 Gestione Operai")
@@ -750,9 +783,14 @@ class Dashboard:
                             "Competenze", options=skill_options,
                             default=default_skills, key=f"skills_{w.id}"
                         )
+                        hours = st.number_input(
+                            "Ore per giorno", min_value=1.0, max_value=24.0,
+                            step=0.5, value=float(w.hours_per_day), key=f"hp_{w.id}"
+                        )
                         saved = st.form_submit_button("Salva")
                     if saved:
                         w.skills = set(selected)
+                        w.hours_per_day = float(hours)
                         if self.workers_file:
                             from domain.models import save_workers_to_yaml
                             save_workers_to_yaml(self.workers, self.workers_file)
@@ -761,7 +799,7 @@ class Dashboard:
                             self.event_queue.put_nowait(update)
                         except Exception:
                             asyncio.create_task(self.event_queue.put(update))
-                        st.success("Competenze aggiornate")
+                        st.success("Dati operaio aggiornati")
 
         st.subheader("Aggiungi Operaio")
         with st.form("add_worker_form"):
