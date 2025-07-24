@@ -15,6 +15,7 @@ import yaml
 import plotly.express as px
 import plotly.graph_objects as go
 
+from domain.events import Event, EventType, ScheduleUpdated, ProgressUpdate
 from domain.events import (
     Event,
     EventType,
@@ -224,10 +225,12 @@ class Dashboard:
             use_container_width=True,
             hide_index=True
         )
-
+codex/extend-orders-tab-with-manual-priority-input
+        # Form per aggiornare la priorità manuale
         st.subheader("Imposta Priorità Manuale")
         with st.form("priority_form"):
-            priority_inputs: Dict[str, int] = {}
+            priority_inputs = {}
+
             for _, row in filtered_df.iterrows():
                 code = row["Codice"]
                 order_obj = self.orders.get(code)
@@ -253,25 +256,15 @@ class Dashboard:
                         continue
                     order.priority_manual = new_priority
                     order.calculated_priority = PriorityLevel(min(new_priority, 5))
-                    event = PriorityChange(code, new_priority)
-                    try:
-                        self.event_queue.put_nowait(event)
-                    except Exception:
-                        asyncio.create_task(self.event_queue.put(event))
-                st.success("Priorità aggiornate")
-                st.rerun()
+codex/extend-orders-tab-with-manual-priority-input
+              try:
+                  asyncio.run(self.event_queue.put(PriorityChange(code, new_priority)))
+              except RuntimeError:
+                  loop = asyncio.new_event_loop()
+                  loop.run_until_complete(self.event_queue.put(PriorityChange(code, new_priority)))
+                  loop.close()
+          st.success("Priorità aggiornate")
 
-        st.subheader("Segna Ordini Completati")
-        completed = st.multiselect(
-            "Seleziona gli ordini completati",
-            options=list(self.orders.keys()),
-            key="complete_orders_select"
-        )
-
-        if st.button("Conferma completamento") and completed:
-            self._complete_orders(completed)
-            st.success("Ordini aggiornati")
-            st.rerun()
     
     def _render_worker_load_tab(self) -> None:
         """Renderizza la tab del carico operai"""
