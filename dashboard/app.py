@@ -219,6 +219,26 @@ class Dashboard:
             hide_index=True
         )
 
+        st.subheader("Aggiorna Priorità Manuale")
+        with st.form("update_priority_form"):
+            code = st.selectbox("Ordine", options=sorted(self.orders.keys()))
+            order = self.orders[code]
+            default_val = order.priority_manual if order.priority_manual is not None else order.calculated_priority.value
+            new_priority = st.number_input(
+                "Priorità", min_value=0, max_value=5, step=1, value=int(default_val)
+            )
+            submit_priority = st.form_submit_button("Aggiorna")
+
+        if submit_priority:
+            order.priority_manual = int(new_priority)
+            event = PriorityChange(code, int(new_priority))
+            try:
+                self.event_queue.put_nowait(event)
+            except Exception:
+                asyncio.create_task(self.event_queue.put(event))
+            st.success("Priorità aggiornata")
+            st.rerun()
+
         st.subheader("Segna Ordini Completati")
         completed = st.multiselect(
             "Seleziona gli ordini completati",
@@ -703,6 +723,29 @@ class Dashboard:
                 for w in self.workers
             ]
             st.table(pd.DataFrame(data))
+
+        if self.workers:
+            st.subheader("Modifica Competenze")
+            for w in self.workers:
+                with st.expander(f"{w.name} (ID {w.id})"):
+                    with st.form(f"edit_worker_{w.id}"):
+                        skill_options = sorted(self.orders.keys())
+                        selected = st.multiselect(
+                            "Competenze", options=skill_options,
+                            default=sorted(w.skills), key=f"skills_{w.id}"
+                        )
+                        saved = st.form_submit_button("Salva")
+                    if saved:
+                        w.skills = set(selected)
+                        if self.workers_file:
+                            from domain.models import save_workers_to_yaml
+                            save_workers_to_yaml(self.workers, self.workers_file)
+                        update = ScheduleUpdated()
+                        try:
+                            self.event_queue.put_nowait(update)
+                        except Exception:
+                            asyncio.create_task(self.event_queue.put(update))
+                        st.success("Competenze aggiornate")
 
         st.subheader("Aggiungi Operaio")
         with st.form("add_worker_form"):
