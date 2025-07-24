@@ -8,3 +8,4 @@ openpyxl>=3.0.9  # Per il supporto Excel in pandas
 # Dipendenze opzionali
 matplotlib>=3.5.0  # Per grafici aggiuntivi
 numpy>=1.20.0     # Richiesto da pandas e plotly
+pytest>=7.0

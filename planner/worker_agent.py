@@ -103,6 +103,7 @@ class WorkerAgent:
             event: L'evento di assegnazione
         """
         order_code = event.order_code
+        doc_number = event.doc_number
         worker_id = event.worker_id
         allocations = event.allocations
         
