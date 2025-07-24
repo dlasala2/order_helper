@@ -15,7 +15,13 @@ import yaml
 import plotly.express as px
 import plotly.graph_objects as go
 
-from domain.events import Event, EventType, ScheduleUpdated, ProgressUpdate
+from domain.events import (
+    Event,
+    EventType,
+    ScheduleUpdated,
+    ProgressUpdate,
+    PriorityChange,
+)
 from domain.models import Order, Worker, Allocation, PriorityLevel, WorkSchedule
 from planner.algorithms import Scheduler
 
@@ -219,25 +225,41 @@ class Dashboard:
             hide_index=True
         )
 
-        st.subheader("Aggiorna Priorità Manuale")
-        with st.form("update_priority_form"):
-            code = st.selectbox("Ordine", options=sorted(self.orders.keys()))
-            order = self.orders[code]
-            default_val = order.priority_manual if order.priority_manual is not None else order.calculated_priority.value
-            new_priority = st.number_input(
-                "Priorità", min_value=0, max_value=5, step=1, value=int(default_val)
-            )
-            submit_priority = st.form_submit_button("Aggiorna")
+        st.subheader("Imposta Priorità Manuale")
+        with st.form("priority_form"):
+            priority_inputs: Dict[str, int] = {}
+            for _, row in filtered_df.iterrows():
+                code = row["Codice"]
+                order_obj = self.orders.get(code)
+                current_priority = order_obj.priority_manual
+                if current_priority is None:
+                    current_priority = order_obj.calculated_priority.value
 
-        if submit_priority:
-            order.priority_manual = int(new_priority)
-            event = PriorityChange(code, int(new_priority))
-            try:
-                self.event_queue.put_nowait(event)
-            except Exception:
-                asyncio.create_task(self.event_queue.put(event))
-            st.success("Priorità aggiornata")
-            st.rerun()
+                priority_inputs[code] = st.number_input(
+                    label=f"{code}",
+                    min_value=0,
+                    max_value=5,
+                    step=1,
+                    value=int(current_priority),
+                    key=f"priority_input_{code}"
+                )
+
+            submitted = st.form_submit_button("Aggiorna Priorità")
+            if submitted:
+                for code, new_val in priority_inputs.items():
+                    new_priority = int(new_val)
+                    order = self.orders.get(code)
+                    if order is None:
+                        continue
+                    order.priority_manual = new_priority
+                    order.calculated_priority = PriorityLevel(min(new_priority, 5))
+                    event = PriorityChange(code, new_priority)
+                    try:
+                        self.event_queue.put_nowait(event)
+                    except Exception:
+                        asyncio.create_task(self.event_queue.put(event))
+                st.success("Priorità aggiornate")
+                st.rerun()
 
         st.subheader("Segna Ordini Completati")
         completed = st.multiselect(
